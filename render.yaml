@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: hitters-notebook
+    runtime: docker
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hitters-notebook-db
+          property: connectionString
+
+databases:
+  - name: hitters-notebook-db
+    plan: free
