@@ -26,8 +26,7 @@ const del = (u) => api('DELETE', u);
 
 function toast(msg) {
   const t = document.createElement('div');
-  t.className = 'card';
-  t.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:99;background:var(--accent);color:var(--accent-text);font-weight:700;padding:12px 20px;border-radius:999px;';
+  t.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:99;background:#8FBC8F;color:#0B1526;font-weight:700;padding:12px 20px;border-radius:999px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;';
   t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 2200);
@@ -37,7 +36,16 @@ function typeLabel(t) {
   return { atbat: 'At-Bat', game: 'Game Reflection', practice: 'Team Practice', individual: 'Individual Hitting' }[t] || t;
 }
 
+// ---------- icons ----------
+const MIC_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/></svg>';
+const STOP_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>';
+
 // ---------- voice ----------
+function setVoiceBtn(btn, listening) {
+  btn.innerHTML = listening
+    ? STOP_SVG + '<span>Stop talking</span>'
+    : MIC_SVG + '<span>Start talking</span>';
+}
 function wireVoice(btnId, areaId) {
   const btn = document.getElementById(btnId);
   const area = document.getElementById(areaId);
@@ -45,8 +53,6 @@ function wireVoice(btnId, areaId) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
     btn.style.display = 'none';
-    const hint = document.getElementById(btnId + '-hint');
-    if (hint) hint.textContent = 'Voice input needs Chrome or Safari.';
     return;
   }
   let rec = null;
@@ -57,7 +63,7 @@ function wireVoice(btnId, areaId) {
     rec.interimResults = false;
     rec.maxAlternatives = 1;
     btn.classList.add('listening');
-    btn.textContent = '⏹ Stop talking';
+    setVoiceBtn(btn, true);
     rec.onresult = (e) => {
       const text = Array.from(e.results).map((r) => r[0].transcript).join(' ');
       area.value = area.value ? area.value.trimEnd() + ' ' + text : text;
@@ -65,27 +71,36 @@ function wireVoice(btnId, areaId) {
     const done = () => {
       rec = null;
       btn.classList.remove('listening');
-      btn.textContent = '🎤 Talk it out';
+      setVoiceBtn(btn, false);
     };
     rec.onend = done;
     rec.onerror = (e) => { done(); if (e.error !== 'aborted') toast('Voice hiccup — try again.'); };
     try { rec.start(); } catch { done(); }
   });
 }
-function voiceRow(areaId, hintId) {
-  return `<div class="voice-row">
-    <button type="button" class="voice-btn" id="voice-${areaId}">🎤 Talk it out</button>
-    <span class="voice-hint" id="voice-${areaId}-hint">Speak and it fills in below. You can edit after.</span>
+function voiceCard(areaId, copy) {
+  return `<div class="voice-card">
+    <div class="voice-top">
+      <span class="mic-circle">${MIC_SVG}</span>
+      <div>
+        <div class="voice-title">Talk it out</div>
+        <p class="voice-copy">${copy}</p>
+      </div>
+    </div>
+    <button type="button" class="voice-btn" id="voice-${areaId}">${MIC_SVG}<span>Start talking</span></button>
+    <p class="voice-caption">Nothing saves until you tap save. Every filled field stays editable.</p>
   </div>`;
 }
 
 // ---------- scale input ----------
-function scaleInput(name, value) {
-  let btns = '';
+function scaleInput(name, value, anchors) {
+  anchors = anchors || {};
+  let cells = '';
   for (let i = 1; i <= 10; i++) {
-    btns += `<button type="button" class="scale-btn${Number(value) === i ? ' selected' : ''}" data-scale="${name}" data-val="${i}">${i}</button>`;
+    const cap = anchors[i] ? `<span class="scale-cap">${anchors[i]}</span>` : '<span class="scale-cap"></span>';
+    cells += `<button type="button" class="scale-btn${Number(value) === i ? ' selected' : ''}" data-scale="${name}" data-val="${i}"><span class="scale-num">${i}</span>${cap}</button>`;
   }
-  return `<div class="scale-row" id="scale-${name}">${btns}</div>
+  return `<div class="scale-grid" id="scale-${name}">${cells}</div>
     <input type="hidden" id="val-${name}" value="${value == null ? '' : esc(value)}">`;
 }
 function wireScales(root) {
@@ -106,10 +121,10 @@ function getScale(root, name) {
 // ---------- layout ----------
 function tabbar(active) {
   const tabs = [
-    ['#/home', '📝', 'Log', 'home'],
-    ['#/library', '📚', 'Library', 'library'],
-    ['#/routines', '🔁', 'Routines', 'routines'],
-    ['#/blueprint', '✅', 'Checklist', 'blueprint'],
+    ['#/home', '<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>', 'Log', 'home'],
+    ['#/library', '<svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>', 'Library', 'library'],
+    ['#/routines', '<svg viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>', 'Routines', 'routines'],
+    ['#/blueprint', '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>', 'Checklist', 'blueprint'],
   ];
   return `<nav class="tabbar">${tabs.map(([h, ic, lb, k]) =>
     `<button data-nav="${h}" class="${active === k ? 'active' : ''}"><span class="ticon">${ic}</span>${lb}</button>`).join('')}</nav>`;
@@ -135,11 +150,30 @@ function wireLogout(root) {
 function backBtn() {
   return `<button class="backbtn" id="back-to-menu">← Back to log menu</button>`;
 }
+function entryTypeGrid(selected) {
+  const types = [
+    ['atbat', 'AB', 'At-bat', '#/log/atbat'],
+    ['game', 'GAME', 'Game reflection', '#/log/game'],
+    ['practice', 'TEAM', 'Team practice', '#/log/practice'],
+    ['individual', 'SOLO', 'Individual hitting', '#/log/individual'],
+  ];
+  return `<div class="kicker gray" style="margin-top:18px">Entry type</div><div class="type-grid">` + types.map(([k, kick, label, h]) =>
+    `<button type="button" class="type-card${k === selected ? ' selected' : ''}" data-thash="${h}">
+      <span class="type-kicker">${kick}</span><span class="type-label">${label}</span>
+    </button>`).join('') + `</div>`;
+}
+function wireTypeGrid(root) {
+  root.querySelectorAll('[data-thash]').forEach((b) => b.addEventListener('click', () => {
+    abSession = null;
+    location.hash = b.dataset.thash;
+  }));
+}
 
 // ---------- auth views ----------
 function renderLogin() {
-  app.innerHTML = `<div class="topbar"><div class="brand">The Hitter's Notebook<small>Know your swing. Train your mind.</small></div></div>
-    <h1>Sign in</h1>
+  app.innerHTML = `<div class="auth-wrap">
+    <div class="brand">The Hitter's Notebook<small>Know your swing. Train your mind.</small></div>
+    <h1 class="display" style="margin-top:26px">Sign in.</h1>
     <div class="card">
       <div id="err"></div>
       <label class="field">Email</label>
@@ -147,8 +181,8 @@ function renderLogin() {
       <label class="field">Password</label>
       <input type="password" id="password" autocomplete="current-password" placeholder="••••••••">
       <button class="btn" id="go">Sign in</button>
-      <p class="sub" style="text-align:center">New here? <a href="#/signup" style="color:var(--accent)">Create an account</a></p>
-    </div>`;
+      <p class="sub center">New here? <a href="#/signup">Create an account</a></p>
+    </div></div>`;
   document.getElementById('go').addEventListener('click', async () => {
     const email = document.getElementById('email').value;
     const password = document.getElementById('password').value;
@@ -160,18 +194,19 @@ function renderLogin() {
   });
 }
 function renderSignup() {
-  app.innerHTML = `<div class="topbar"><div class="brand">The Hitter's Notebook<small>Know your swing. Train your mind.</small></div></div>
-    <h1>Create your account</h1>
-    <p class="sub">Your journal is private to you. Only you can see your entries.</p>
+  app.innerHTML = `<div class="auth-wrap">
+    <div class="brand">The Hitter's Notebook<small>Know your swing. Train your mind.</small></div>
+    <h1 class="display" style="margin-top:26px">Create your account.</h1>
+    <p class="lede">Your journal is private to you. Only you can see your entries.</p>
     <div class="card">
       <div id="err"></div>
       <label class="field">Email</label>
       <input type="email" id="email" autocomplete="email" placeholder="you@example.com">
-      <label class="field">Password (8+ characters)</label>
+      <label class="field">Password <span style="color:var(--muted);font-weight:400;font-size:13px">(8+ characters)</span></label>
       <input type="password" id="password" autocomplete="new-password" placeholder="••••••••">
       <button class="btn" id="go">Create account</button>
-      <p class="sub" style="text-align:center">Have an account? <a href="#/login" style="color:var(--accent)">Sign in</a></p>
-    </div>`;
+      <p class="sub center">Have an account? <a href="#/login">Sign in</a></p>
+    </div></div>`;
   document.getElementById('go').addEventListener('click', async () => {
     const email = document.getElementById('email').value;
     const password = document.getElementById('password').value;
@@ -185,19 +220,26 @@ function renderSignup() {
 
 // ---------- home / log menu ----------
 function renderHome() {
+  const rows = [
+    ['01', 'At-bat', 'Log one plate appearance and rate the execution.', '#/log/atbat'],
+    ['02', 'Game reflection', 'Step back from each at-bat and reflect on the game as a whole.', '#/log/game'],
+    ['03', 'Team practice', 'Capture the drills, pressure reps, and what transferred.', '#/log/practice'],
+    ['04', 'Individual hitting', 'Track your purpose, adjustments, and next test.', '#/log/individual'],
+  ];
   app.innerHTML = `${topbar()}
-    <h1>Log</h1>
-    <p class="sub">What are you capturing?</p>
-    <div class="menu-grid">
-      <div class="menu-tile" data-nav="#/log/atbat"><span class="emoji">⚾</span><div class="label">At-Bat</div><div class="hint">Log pitch by pitch, at-bat by at-bat</div></div>
-      <div class="menu-tile" data-nav="#/log/game"><span class="emoji">🎯</span><div class="label">Game Reflection</div><div class="hint">Reflect on the game as a whole</div></div>
-      <div class="menu-tile" data-nav="#/log/practice"><span class="emoji">👥</span><div class="label">Team Practice</div><div class="hint">Reflect on practice</div></div>
-      <div class="menu-tile" data-nav="#/log/individual"><span class="emoji">🥎</span><div class="label">Individual Hitting</div><div class="hint">Cage or solo session</div></div>
+    <div class="kicker" style="margin-top:18px">Choose a log</div>
+    <h1 class="display">What did you just <em>work through?</em></h1>
+    <p class="lede">Start with the rep that is freshest. You can add the deeper details after the main lesson is down.</p>
+    <div class="logrows">
+      ${rows.map(([n, t, d, h]) => `
+        <button class="logrow" data-nav="${h}">
+          <span class="lognum">${n}</span>
+          <span class="logtext"><span class="logtitle">${t}</span><span class="logdesc">${d}</span></span>
+          <span class="logarrow">→</span>
+        </button>`).join('')}
     </div>
     ${tabbar('home')}`;
   wireNav(app); wireLogout(app);
-  app.querySelectorAll('.menu-tile').forEach((t) =>
-    t.addEventListener('click', () => { location.hash = t.dataset.nav; }));
 }
 
 // ---------- at-bat form ----------
@@ -207,48 +249,84 @@ function renderAtBat(existing) {
   const num = existing ? existing.at_bat_number : (abSession ? abSession.number : 1);
   const date = existing ? existing.date : (abSession ? abSession.date : todayStr());
   const opp = existing ? existing.opponent : (abSession ? abSession.opponent : '');
+  const anchors = { 1: 'Missed', 5: 'Mixed', 10: 'Owned' };
   app.innerHTML = `${backBtn()}
-    <h1>${existing ? 'Edit At-Bat' : `At-Bat #${num}`}</h1>
-    ${!existing && abSession ? `<p class="sub">Game flow: save &amp; log the next at-bat to keep rolling.</p>` : ''}
-    <div class="card">
-      <label class="field">Date</label>
-      <input type="date" id="f-date" value="${esc(date || todayStr())}">
-      <label class="field">Opponent (optional)</label>
-      <input type="text" id="f-opp" value="${esc(opp || '')}" placeholder="Who did you face?">
-      <label class="field">What was your plan?</label>
-      ${voiceRow('f-plan')}
-      <textarea id="f-plan">${esc(d.plan || '')}</textarea>
-      <label class="field">How well did you execute it? (1–10)</label>
-      ${scaleInput('exec', d.execution)}
+    <div class="kicker" style="margin-top:14px">New entry</div>
+    <h1 class="display">${existing ? 'Edit at-bat.' : 'Log this at-bat.'}</h1>
+    <p class="lede">Capture one plate appearance at a time, then keep going until the game is over.</p>
+    ${voiceCard('f-plan', 'Describe what happened, your approach, result, thoughts, mechanics, and lesson. Your words will fill the fields below.')}
+    ${!existing ? entryTypeGrid('atbat') : ''}
+    <label class="field">Date</label>
+    <input type="date" id="f-date" value="${esc(date || todayStr())}">
+    <label class="field">At-bat #</label>
+    <input type="text" id="f-abnum" value="${esc(num)}" inputmode="numeric" disabled style="opacity:.75">
+    <label class="field">Game / opponent</label>
+    <span class="opt">Optional</span>
+    <input type="text" id="f-opp" value="${esc(opp || '')}" placeholder="vs. Davidson">
+    <div class="card tinted-green">
+      <h3>What was the pitcher like?</h3>
+      <p class="hint">Capture what you saw before you write your approach.</p>
+      <label class="field" style="margin-top:6px">Pitcher description</label>
+      <span class="opt">Optional</span>
+      <textarea id="f-pnotes" placeholder="Velocity, release, pitch mix, shapes, tempo, patterns...">${esc(d.pitcherNotes || '')}</textarea>
+    </div>
+    <label class="field">What was your approach?</label>
+    <textarea id="f-plan" placeholder="Hunt a fastball up, stay through the middle...">${esc(d.plan || '')}</textarea>
+    <label class="field">How well did you execute the plan?</label>
+    ${scaleInput('exec', d.execution, anchors)}
+    <label class="field">What do you want to remember from this at-bat?</label>
+    <textarea id="f-notes" placeholder="The lesson you want available next time...">${esc(d.notes || '')}</textarea>
+    <button type="button" class="details-toggle" id="details-toggle" aria-expanded="${existing ? 'true' : 'false'}">
+      <span id="details-label">${existing ? 'Hide details' : 'Add result, mental game, mechanics & self-talk'}</span>
+      <span class="details-icon" id="details-icon">${existing ? '−' : '+'}</span>
+    </button>
+    <div class="details-body" id="details-body"${existing ? '' : ' hidden'}>
       <label class="field">Result</label>
+      <span class="opt">Optional</span>
       <input type="text" id="f-result" value="${esc(d.result || '')}" placeholder="e.g. lineout to center, walk, home run">
       <label class="field">Contact quality</label>
+      <span class="opt">Optional</span>
       <input type="text" id="f-contact" value="${esc(d.contactQuality || '')}" placeholder="e.g. barreled, jammed, off the end">
-      <label class="field">Mechanics / what your swing felt like</label>
-      <textarea id="f-mech">${esc(d.mechanics || '')}</textarea>
       <label class="field">Mental state</label>
+      <span class="opt">Optional</span>
       <input type="text" id="f-mental" value="${esc(d.mentalState || '')}" placeholder="e.g. calm, rushed, locked in">
+      <label class="field">Body and mechanics</label>
+      <span class="opt">Optional</span>
+      <textarea id="f-mech" placeholder="Timing, posture, barrel path, what the body felt...">${esc(d.mechanics || '')}</textarea>
       <label class="field">Self-talk</label>
-      <input type="text" id="f-selftalk" value="${esc(d.selfTalk || '')}" placeholder="What were you saying to yourself?">
+      <span class="opt">Optional</span>
+      <input type="text" id="f-selftalk" value="${esc(d.selfTalk || '')}" placeholder="What did you say to yourself? Was it believable and useful?">
       <label class="field">One cue</label>
-      <input type="text" id="f-cue" value="${esc(d.cue || '')}" placeholder="The one thought you carried in">
-      <label class="field">Pitcher notes</label>
-      <textarea id="f-pnotes">${esc(d.pitcherNotes || '')}</textarea>
-      <label class="field">Anything else to remember</label>
-      ${voiceRow('f-notes')}
-      <textarea id="f-notes">${esc(d.notes || '')}</textarea>
-      ${existing
-        ? `<button class="btn" id="save">Save changes</button>
-           <button class="btn danger" id="del">Delete this at-bat</button>`
-        : `<button class="btn" id="save-next">Save &amp; log next at-bat</button>
-           <button class="btn secondary" id="save-done">Save &amp; finish</button>`}
+      <span class="opt">Optional</span>
+      <input type="text" id="f-cue" value="${esc(d.cue || '')}" placeholder="See it up">
     </div>
+    ${existing
+      ? `<div class="btn-row"><button class="btn secondary" id="cancel-btn">Cancel</button><button class="btn" id="save">Save changes</button></div>
+         <button class="btn danger" id="del">Delete this at-bat</button>`
+      : `<div class="btn-row"><button class="btn secondary" id="cancel-btn">Cancel</button><button class="btn" id="save-done">Save entry</button></div>
+         <button class="btn muted-full" id="save-next">Save &amp; log next at-bat</button>`}
     ${tabbar('home')}`;
   wireNav(app);
   wireScales(app);
   wireVoice('voice-f-plan', 'f-plan');
-  wireVoice('voice-f-notes', 'f-notes');
+  if (!existing) wireTypeGrid(app);
   document.getElementById('back-to-menu').addEventListener('click', () => { abSession = null; location.hash = '#/home'; });
+  document.getElementById('cancel-btn').addEventListener('click', () => {
+    if (existing) { location.hash = '#/library'; } else { abSession = null; location.hash = '#/home'; }
+  });
+
+  // expandable details
+  const dt = document.getElementById('details-toggle');
+  const db = document.getElementById('details-body');
+  const dl = document.getElementById('details-label');
+  const di = document.getElementById('details-icon');
+  const setDetails = (open) => {
+    db.hidden = !open;
+    dt.setAttribute('aria-expanded', String(open));
+    dl.textContent = open ? 'Hide details' : 'Add result, mental game, mechanics & self-talk';
+    di.textContent = open ? '−' : '+';
+  };
+  dt.addEventListener('click', () => setDetails(db.hidden));
 
   const collect = () => ({
     date: document.getElementById('f-date').value,
@@ -309,35 +387,52 @@ function renderReflection(kind, existing) {
   const isGame = kind === 'game';
   const d = existing ? existing.data : {};
   const ratings = (d && d.ratings) || {};
-  const title = existing ? `Edit ${isGame ? 'Game Reflection' : 'Practice Reflection'}` : (isGame ? 'Game Reflection' : 'Team Practice');
+  const anchors = { 1: 'Low', 5: 'Middle', 10: 'High' };
+  const heading = existing
+    ? (isGame ? 'Edit game reflection.' : 'Edit practice reflection.')
+    : (isGame ? 'Reflect on the whole game.' : 'Reflect on the whole practice.');
+  const lede = isGame
+    ? 'This space is only for the big picture—how you competed, adjusted, and responded from the first pitch to the last.'
+    : 'This space is only for the big picture—how you competed, adjusted, and responded from the first rep to the last.';
+  const voiceCopy = isGame
+    ? 'Talk through the game as a whole — how you competed, where you were locked in, and how you handled the hard moments. Your words will fill the reflection below.'
+    : 'Talk through the session as a whole — the drills, the pressure reps, and what transferred. Your words will fill the reflection below.';
   app.innerHTML = `${backBtn()}
-    <h1>${title}</h1>
-    <p class="sub">${isGame ? 'How did you compete today — the game as a whole.' : 'How did practice go — the session as a whole.'}</p>
-    <div class="card">
-      <label class="field">Date</label>
-      <input type="date" id="f-date" value="${esc(existing ? existing.date : todayStr())}">
-      <label class="field">${isGame ? 'Opponent' : 'Practice context'}</label>
-      <input type="text" id="f-opp" value="${esc(isGame ? (existing ? existing.opponent : '') : (existing ? existing.context : ''))}"
-        placeholder="${isGame ? 'Who did you play?' : 'e.g. Tuesday team BP, intrasquad'}">
-      <label class="field">How well did you compete? (1–10)</label>
-      ${scaleInput('competed', ratings.competed)}
-      <label class="field">How well did you stay present? (1–10)</label>
-      ${scaleInput('present', ratings.present)}
-      <label class="field">How well did you respond to adversity? (1–10)</label>
-      ${scaleInput('adversity', ratings.adversity)}
-      <label class="field">Open reflection</label>
-      ${voiceRow('f-refl')}
-      <textarea class="big" id="f-refl" placeholder="How did the ${isGame ? 'game' : 'practice'} feel overall? What worked, what didn't, what did you learn?">${esc(existing ? existing.reflection : '')}</textarea>
-      ${existing
-        ? `<button class="btn" id="save">Save changes</button>
-           <button class="btn danger" id="del">Delete</button>`
-        : `<button class="btn" id="save">Save reflection</button>`}
-    </div>
+    <div class="kicker" style="margin-top:14px">New entry</div>
+    <h1 class="display">${heading}</h1>
+    <p class="lede">${lede}</p>
+    ${voiceCard('f-refl', voiceCopy)}
+    ${!existing ? entryTypeGrid(kind) : ''}
+    <label class="field">Date</label>
+    <input type="date" id="f-date" value="${esc(existing ? existing.date : todayStr())}">
+    <label class="field">${isGame ? 'Opponent' : 'Practice context'}</label>
+    <span class="opt">Optional</span>
+    <input type="text" id="f-opp" value="${esc(isGame ? (existing ? existing.opponent : '') : (existing ? existing.context : ''))}"
+      placeholder="${isGame ? 'Who did you play?' : 'e.g. Tuesday team BP, intrasquad'}">
+    <label class="field">How well did you compete?</label>
+    ${scaleInput('competed', ratings.competed, anchors)}
+    <label class="field">How well did you stay present?</label>
+    ${scaleInput('present', ratings.present, anchors)}
+    <label class="field">How well did you respond to adversity?</label>
+    ${scaleInput('adversity', ratings.adversity, anchors)}
+    <label class="field">Open reflection</label>
+    <span class="opt">Type here or use 'Start talking' above</span>
+    <textarea class="big" id="f-refl" placeholder="Talk or type through the ${isGame ? 'game' : 'practice'} as a whole. What stood out? Where were you locked in? When did your mindset shift? How did you handle the hard moments?">${esc(existing ? existing.reflection : '')}</textarea>
+    <h2 class="sect">What happens next</h2>
+    <p class="sub">Save your reflection and the app will respond with a few general takeaways from what you wrote.</p>
+    ${existing
+      ? `<div class="btn-row"><button class="btn secondary" id="cancel-btn">Cancel</button><button class="btn" id="save">Save changes</button></div>
+         <button class="btn danger" id="del">Delete</button>`
+      : `<div class="btn-row"><button class="btn secondary" id="cancel-btn">Cancel</button><button class="btn" id="save">Save &amp; get takeaways</button></div>`}
     ${tabbar('home')}`;
   wireNav(app);
   wireScales(app);
   wireVoice('voice-f-refl', 'f-refl');
+  if (!existing) wireTypeGrid(app);
   document.getElementById('back-to-menu').addEventListener('click', () => { location.hash = '#/home'; });
+  document.getElementById('cancel-btn').addEventListener('click', () => {
+    location.hash = existing ? `#/entry/${existing.id}` : '#/home';
+  });
 
   const collect = () => {
     const oppVal = document.getElementById('f-opp').value.trim();
@@ -379,47 +474,55 @@ function renderReflection(kind, existing) {
 // ---------- individual hitting form ----------
 function renderIndividual(existing) {
   const d = existing ? existing.data : {};
+  const base = existing ? (d || {}) : {};
+  const anchors = { 1: 'Missed', 5: 'Mixed', 10: 'Owned' };
   app.innerHTML = `${backBtn()}
-    <h1>${existing ? 'Edit Hitting Session' : 'Individual Hitting'}</h1>
-    <div class="card">
-      <label class="field">Date</label>
-      <input type="date" id="f-date" value="${esc(existing ? existing.date : todayStr())}">
-      <label class="field">How well did you execute? (1–10)</label>
-      ${scaleInput('exec', d.execution)}
-      <label class="field">Focus / plan for the session</label>
-      ${voiceRow('f-focus')}
-      <textarea id="f-focus">${esc(d.focus || '')}</textarea>
-      <label class="field">Mechanics / what your swing felt like</label>
-      <textarea id="f-mech">${esc(d.mechanics || '')}</textarea>
-      <label class="field">Self-talk</label>
-      <input type="text" id="f-selftalk" value="${esc(d.selfTalk || '')}" placeholder="What were you saying to yourself?">
-      <label class="field">Approach</label>
-      <textarea id="f-approach">${esc(d.approach || '')}</textarea>
-      <label class="field">Notes</label>
-      ${voiceRow('f-notes')}
-      <textarea id="f-notes">${esc(d.notes || '')}</textarea>
-      ${existing
-        ? `<button class="btn" id="save">Save changes</button>
-           <button class="btn danger" id="del">Delete</button>`
-        : `<button class="btn" id="save">Save session</button>`}
-    </div>
+    <div class="kicker" style="margin-top:14px">New entry</div>
+    <h1 class="display">${existing ? 'Edit hitting session.' : 'Log individual hitting.'}</h1>
+    <p class="lede">Track the purpose of your own session and the adjustment you want to keep testing.</p>
+    ${voiceCard('f-focus', 'Describe what you worked on, how well you executed, what your body felt, your self-talk, and what you want to test next. Your words will fill the fields below.')}
+    ${!existing ? entryTypeGrid('individual') : ''}
+    <label class="field">Date</label>
+    <input type="date" id="f-date" value="${esc(existing ? existing.date : todayStr())}">
+    <label class="field">Session context</label>
+    <span class="opt">Optional</span>
+    <input type="text" id="f-context" value="${esc(existing ? existing.context : '')}" placeholder="Indoor cage, 60 swings">
+    <label class="field">What were you working on?</label>
+    <textarea id="f-focus" placeholder="Tee work for direction, front toss for timing...">${esc(d.focus || '')}</textarea>
+    <label class="field">How well did you execute the plan?</label>
+    ${scaleInput('exec', d.execution, anchors)}
+    <label class="field">What worked, and what will you test next time?</label>
+    <textarea id="f-notes" placeholder="The lesson you want available next time...">${esc(d.notes || '')}</textarea>
+    <label class="field">Body and mechanics</label>
+    <span class="opt">Optional</span>
+    <textarea id="f-mech" placeholder="Timing, posture, barrel path, what the body felt...">${esc(d.mechanics || '')}</textarea>
+    <label class="field">Self-talk</label>
+    <span class="opt">Optional</span>
+    <input type="text" id="f-selftalk" value="${esc(d.selfTalk || '')}" placeholder="What did you say to yourself? Was it believable and useful?">
+    ${existing
+      ? `<div class="btn-row"><button class="btn secondary" id="cancel-btn">Cancel</button><button class="btn" id="save">Save changes</button></div>
+         <button class="btn danger" id="del">Delete</button>`
+      : `<div class="btn-row"><button class="btn secondary" id="cancel-btn">Cancel</button><button class="btn" id="save">Save entry</button></div>`}
     ${tabbar('home')}`;
   wireNav(app);
   wireScales(app);
   wireVoice('voice-f-focus', 'f-focus');
-  wireVoice('voice-f-notes', 'f-notes');
+  if (!existing) wireTypeGrid(app);
   document.getElementById('back-to-menu').addEventListener('click', () => { location.hash = '#/home'; });
+  document.getElementById('cancel-btn').addEventListener('click', () => {
+    location.hash = existing ? '#/library' : '#/home';
+  });
 
   const collect = () => ({
     date: document.getElementById('f-date').value,
-    data: {
+    context: document.getElementById('f-context').value.trim(),
+    data: Object.assign({}, base, {
       execution: getScale(app, 'exec'),
       focus: document.getElementById('f-focus').value.trim(),
       mechanics: document.getElementById('f-mech').value.trim(),
       selfTalk: document.getElementById('f-selftalk').value.trim(),
-      approach: document.getElementById('f-approach').value.trim(),
       notes: document.getElementById('f-notes').value.trim(),
-    },
+    }),
   });
   document.getElementById('save').addEventListener('click', async () => {
     try {
@@ -445,11 +548,13 @@ function renderIndividual(existing) {
 // ---------- library ----------
 async function renderLibrary() {
   app.innerHTML = `${topbar()}
-    <h1>Library</h1>
-    <div class="card">
+    <div class="kicker" style="margin-top:14px">Archive</div>
+    <h1 class="display">Library.</h1>
+    <p class="lede">Every rep you've logged, searchable.</p>
+    <div class="search-wrap">
       <input type="text" id="q" placeholder="Search: home run, strike out, fastball…" autocomplete="off">
-      <div class="chips" id="chips"><span class="chip-label">Try:</span></div>
     </div>
+    <div class="chips" id="chips"><span class="chip-label">Try:</span></div>
     <div id="results"></div>
     ${tabbar('library')}`;
   wireNav(app); wireLogout(app);
@@ -537,12 +642,12 @@ async function renderEntry(id) {
   ];
   app.innerHTML = `${topbar()}
     <button class="backbtn" id="back">← Back to library</button>
-    <h1>${typeLabel(e.type)}</h1>
+    <h1 class="display" style="font-size:36px">${typeLabel(e.type)}.</h1>
     <div class="card">${rows.join('')}</div>
     ${textFields.map(([k, v]) => v ? `<div class="card"><strong>${k}</strong><p>${esc(v)}</p></div>` : '').join('')}
     ${e.reflection ? `<div class="card"><strong>Reflection</strong><p>${esc(e.reflection)}</p></div>` : ''}
-    ${e.takeaways && e.takeaways.length ? `<h2>Takeaways</h2>${e.takeaways.map((t) =>
-      `<div class="takeaway"><strong>💡</strong> ${esc(t)}</div>`).join('')}` : ''}
+    ${e.takeaways && e.takeaways.length ? `<h2 class="sect">Takeaways</h2>${e.takeaways.map((t) =>
+      `<div class="takeaway"><div class="kicker">Takeaway</div>${esc(t)}</div>`).join('')}` : ''}
     <button class="btn secondary" id="edit">Edit this entry</button>
     ${tabbar('library')}`;
   wireNav(app); wireLogout(app);
@@ -561,21 +666,22 @@ async function renderRoutines() {
   let routines = [];
   try { routines = await get('/api/routines'); } catch { /* ignore */ }
   app.innerHTML = `${topbar()}
-    <h1>Routines</h1>
-    <p class="sub">Your pre-game, between-pitch, and reset routines — in your own words.</p>
+    <div class="kicker" style="margin-top:14px">Routines</div>
+    <h1 class="display">Routines.</h1>
+    <p class="lede">Your pre-game, between-pitch, and reset routines — in your own words.</p>
     <div id="list">${routines.length ? routines.map((r) => `
       <div class="card">
-        <strong>${esc(r.title)}</strong>
+        <strong style="font-family:var(--serif);font-size:20px;font-weight:400">${esc(r.title)}</strong>
         ${r.steps && r.steps.length ? `<ol class="routine-steps">${r.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>` : '<p class="sub">No steps yet.</p>'}
         <button class="btn small secondary" data-edit="${r.id}">Edit</button>
         <button class="btn small danger" data-del="${r.id}">Delete</button>
       </div>`).join('') : '<div class="empty">No routines yet. Build your first one below.</div>'}
     </div>
-    <h2>New routine</h2>
+    <h2 class="sect">New routine</h2>
     <div class="card">
       <label class="field">Title</label>
       <input type="text" id="r-title" placeholder="e.g. Pre-game lock-in">
-      <label class="field">Steps (one per line)</label>
+      <label class="field">Steps <span style="color:var(--muted);font-weight:400;font-size:13px">(one per line)</span></label>
       <textarea id="r-steps" placeholder="Breathe and clear the last pitch&#10;See one pitch up in the zone&#10;One cue: be on time"></textarea>
       <button class="btn" id="r-save">Save routine</button>
     </div>
@@ -598,11 +704,11 @@ async function renderRoutines() {
 function renderRoutineEdit(r) {
   app.innerHTML = `${topbar()}
     <button class="backbtn" id="back">← Back to routines</button>
-    <h1>Edit routine</h1>
+    <h1 class="display" style="font-size:36px">Edit routine.</h1>
     <div class="card">
       <label class="field">Title</label>
       <input type="text" id="r-title" value="${esc(r.title)}">
-      <label class="field">Steps (one per line)</label>
+      <label class="field">Steps <span style="color:var(--muted);font-weight:400;font-size:13px">(one per line)</span></label>
       <textarea id="r-steps">${esc((r.steps || []).join('\n'))}</textarea>
       <button class="btn" id="r-save">Save changes</button>
     </div>
@@ -622,9 +728,10 @@ async function renderBlueprint() {
   let items = [];
   try { items = await get('/api/blueprint'); } catch { /* ignore */ }
   app.innerHTML = `${topbar()}
-    <h1>Success Blueprint</h1>
+    <div class="kicker" style="margin-top:14px">Checklist</div>
+    <h1 class="display">Success Blueprint.</h1>
     <div class="card note-card">
-      <p><strong>Hitting is hard.</strong></p>
+      <p class="big-serif">Hitting is hard.</p>
       <p>Success isn't defined by whether you get a hit or not. Define what success is for <em>you</em>:</p>
       <p>Were you on time? Did you stick to your plan? Did you swing at the right pitches?</p>
       <p class="sub">This checklist is everything that led to your best days. Check items off as you live them.</p>
