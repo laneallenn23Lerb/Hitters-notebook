@@ -1,10 +1,12 @@
 // The Hitter's Notebook — multi-user server.
 // Express + cookie sessions + SQLite (local) or Postgres (DATABASE_URL).
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
+const multer = require('multer');
 const db = require('./db');
 const { generateTakeaways } = require('./takeaways');
 
@@ -230,8 +232,143 @@ app.put('/api/entries/:id', auth, async (req, res) => {
 });
 
 app.delete('/api/entries/:id', auth, async (req, res) => {
+  const vids = await db.query('SELECT stored_filename FROM videos WHERE entry_id = ? AND user_id = ?', [req.params.id, req.userId]);
   await db.run('DELETE FROM entries WHERE id = ? AND user_id = ?', [req.params.id, req.userId]);
+  for (const v of vids) {
+    try { fs.unlinkSync(videoPath(req.userId, v.stored_filename)); } catch { /* already gone */ }
+  }
   res.json({ ok: true });
+});
+
+// ---------- video attachments ----------
+// Videos live under data/uploads/<user_id>/ and are ONLY served through the
+// authenticated /api/videos/:id/stream route below — never as public static files.
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+
+function videoPath(userId, storedFilename) {
+  const safeUser = String(userId).replace(/[^a-zA-Z0-9-]/g, '');
+  const safeFile = path.basename(String(storedFilename));
+  return path.join(__dirname, 'data', 'uploads', safeUser, safeFile);
+}
+
+const videoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(__dirname, 'data', 'uploads', String(req.userId).replace(/[^a-zA-Z0-9-]/g, ''));
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const id = db.newId();
+    file.videoId = id;
+    const safe = (file.originalname || 'video').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'video';
+    cb(null, id + '-' + safe);
+  },
+});
+
+const videoUpload = multer({
+  storage: videoStorage,
+  limits: { fileSize: MAX_VIDEO_BYTES },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype && file.mimetype.startsWith('video/')) cb(null, true);
+    else cb(new Error('Only video files can be attached.'));
+  },
+});
+
+function publicVideo(v) {
+  return {
+    id: v.id,
+    original_name: v.original_name,
+    mime_type: v.mime_type,
+    size_bytes: v.size_bytes,
+    created_at: v.created_at,
+  };
+}
+
+// List videos attached to one of the user's entries
+app.get('/api/entries/:id/videos', auth, async (req, res) => {
+  const entryRows = await db.query('SELECT id FROM entries WHERE id = ? AND user_id = ?', [req.params.id, req.userId]);
+  if (!entryRows.length) return res.status(404).json({ error: 'Entry not found.' });
+  const rows = await db.query(
+    'SELECT id, original_name, mime_type, size_bytes, created_at FROM videos WHERE entry_id = ? AND user_id = ? ORDER BY created_at ASC',
+    [req.params.id, req.userId]);
+  res.json(rows.map(publicVideo));
+});
+
+// Upload one or more videos to an entry
+app.post('/api/entries/:id/videos', auth, (req, res) => {
+  videoUpload.array('videos', 10)(req, res, async (err) => {
+    if (err) {
+      const msg = err.code === 'LIMIT_FILE_SIZE'
+        ? 'That video is too large (max 100MB).'
+        : (err.message || 'Upload failed. Please try again.');
+      return res.status(400).json({ error: msg });
+    }
+    const files = req.files || [];
+    if (!files.length) return res.status(400).json({ error: 'Choose a video first.' });
+    try {
+      const entryRows = await db.query('SELECT id FROM entries WHERE id = ? AND user_id = ?', [req.params.id, req.userId]);
+      if (!entryRows.length) {
+        for (const f of files) { try { fs.unlinkSync(f.path); } catch { /* ignore */ } }
+        return res.status(404).json({ error: 'Entry not found.' });
+      }
+      const now = db.nowIso();
+      const out = [];
+      for (const f of files) {
+        const vid = f.videoId || db.newId();
+        await db.run(
+          'INSERT INTO videos (id, user_id, entry_id, stored_filename, original_name, mime_type, size_bytes, created_at) VALUES (?,?,?,?,?,?,?,?)',
+          [vid, req.userId, req.params.id, f.filename, f.originalname || 'video', f.mimetype, f.size, now]);
+        out.push(publicVideo({
+          id: vid, original_name: f.originalname || 'video',
+          mime_type: f.mimetype, size_bytes: f.size, created_at: now,
+        }));
+      }
+      res.status(201).json(out);
+    } catch (e) {
+      console.error('video upload error', e);
+      for (const f of files) { try { fs.unlinkSync(f.path); } catch { /* ignore */ } }
+      res.status(500).json({ error: 'Could not save the video. Please try again.' });
+    }
+  });
+});
+
+// Delete one video (file + row)
+app.delete('/api/videos/:id', auth, async (req, res) => {
+  const rows = await db.query('SELECT * FROM videos WHERE id = ? AND user_id = ?', [req.params.id, req.userId]);
+  if (!rows.length) return res.status(404).json({ error: 'Video not found.' });
+  await db.run('DELETE FROM videos WHERE id = ? AND user_id = ?', [req.params.id, req.userId]);
+  try { fs.unlinkSync(videoPath(req.userId, rows[0].stored_filename)); } catch { /* already gone */ }
+  res.json({ ok: true });
+});
+
+// Stream a video — authenticated, ownership-checked, with Range support for mobile playback
+app.get('/api/videos/:id/stream', auth, async (req, res) => {
+  const rows = await db.query('SELECT * FROM videos WHERE id = ? AND user_id = ?', [req.params.id, req.userId]);
+  if (!rows.length) return res.status(404).json({ error: 'Video not found.' });
+  const filePath = videoPath(req.userId, rows[0].stored_filename);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Video file is missing.' });
+  const stat = fs.statSync(filePath);
+  const mime = rows[0].mime_type || 'video/mp4';
+  res.setHeader('Content-Type', mime);
+  res.setHeader('Accept-Ranges', 'bytes');
+  const range = req.headers.range;
+  if (range) {
+    const parts = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+    if (isNaN(start) || start < 0 || start >= stat.size) {
+      res.setHeader('Content-Range', `bytes */${stat.size}`);
+      return res.status(416).end();
+    }
+    const safeEnd = Math.min(isNaN(end) ? stat.size - 1 : end, stat.size - 1);
+    res.status(206);
+    res.setHeader('Content-Range', `bytes ${start}-${safeEnd}/${stat.size}`);
+    res.setHeader('Content-Length', safeEnd - start + 1);
+    fs.createReadStream(filePath, { start, end: safeEnd }).pipe(res);
+  } else {
+    res.setHeader('Content-Length', stat.size);
+    fs.createReadStream(filePath).pipe(res);
+  }
 });
 
 // ---------- frequent searches ----------

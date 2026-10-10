@@ -296,6 +296,26 @@ input[type="date"] { color-scheme: dark; }
 .check-item .ctext.done { text-decoration: line-through; color: var(--muted); }
 .check-item .cdel { background: none; border: none; color: var(--danger); font-size: 22px; cursor: pointer; padding: 2px 6px; }
 
+/* ---------- video attachments ---------- */
+.video-item {
+  display: flex; gap: 12px; align-items: center;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 12px 14px; margin: 10px 0;
+}
+.video-item .video-name {
+  flex: 1; font-size: 15px; color: var(--cream);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vid-remove {
+  background: none; border: none; color: var(--danger);
+  font-size: 26px; line-height: 1; cursor: pointer; padding: 2px 8px;
+  font-family: var(--sans);
+}
+video.vid-player {
+  width: 100%; border-radius: 14px; background: #000;
+  margin: 4px 0; max-height: 340px;
+}
+
 /* ---------- misc ---------- */
 .error {
   background: rgba(224, 92, 92, 0.12); border: 1px solid var(--danger); color: #ffb3b3;

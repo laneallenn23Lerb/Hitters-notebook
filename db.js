@@ -111,6 +111,19 @@ async function init() {
     position INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
   )`);
+
+  await run(`CREATE TABLE IF NOT EXISTS videos (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    entry_id TEXT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    stored_filename TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  )`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_videos_entry ON videos(entry_id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_videos_user ON videos(user_id)`);
 }
 
 module.exports = { query, run, init, newId, nowIso, usePg };

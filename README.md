@@ -60,6 +60,19 @@ This gets you a public website where anyone can sign up. It uses Render's free t
   your Render web service (dashboard → your service → Environment).
 - Never share your `SESSION_SECRET` or `DATABASE_URL` with anyone.
 
+## Video attachments
+
+Every log form has an "Attach video" section: pick clips from the camera roll
+(`video/*`, up to 100MB each, several per entry). Videos are stored on the
+server and streamed only to the account that uploaded them — they're never
+public files. Deleting an entry deletes its videos too.
+
+**Note for hosting:** on Render's free tier the server's disk is wiped on every
+restart/redeploy, so uploaded videos disappear when that happens (the journal
+text itself lives safely in Postgres). If videos start mattering, the fix is
+moving uploads to object storage (e.g. Cloudflare R2 or S3) — a paid Render
+disk ($1/GB/month) is the simplest alternative.
+
 ## How it works (the short version)
 
 - **Sign up / Sign in** — passwords are scrambled (hashed) before storage; sign-in

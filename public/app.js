@@ -118,6 +118,88 @@ function getScale(root, name) {
   return v === '' ? null : Number(v);
 }
 
+// ---------- video attachments ----------
+async function apiUpload(url, formData) {
+  const res = await fetch(url, { method: 'POST', body: formData });
+  let data = {};
+  try { data = await res.json(); } catch { data = {}; }
+  if (!res.ok) throw new Error(data.error || 'Upload failed.');
+  return data;
+}
+function fmtSize(b) {
+  if (b == null) return '';
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return Math.round(b / 1024) + ' KB';
+  return (b / 1048576).toFixed(1) + ' MB';
+}
+// "Add video" section for log forms. entryId null => brand-new entry:
+// chosen files are held pending and uploaded after the entry is created.
+// Returns a controller with uploadPending(entryId).
+function videoSectionHTML() {
+  return `<div class="kicker" style="margin-top:24px">Video</div>
+    <h2 class="sect" style="margin-top:4px">Attach video.</h2>
+    <p class="sub">Add clips from your camera roll as a visual reference — your swing, the cage, the round. They stay private to your account.</p>
+    <div id="video-list"></div>
+    <label class="btn secondary" for="video-input" style="text-align:center;cursor:pointer">Add video</label>
+    <input type="file" id="video-input" accept="video/*" multiple hidden>`;
+}
+async function wireVideoSection(entryId) {
+  const list = document.getElementById('video-list');
+  const input = document.getElementById('video-input');
+  let pending = [];
+  const renderPending = () => {
+    list.innerHTML = pending.map((f, i) =>
+      `<div class="video-item"><span class="video-name">${esc(f.name)} <span class="sub">${fmtSize(f.size)}</span></span><button class="vid-remove" data-rm="${i}" aria-label="Remove">×</button></div>`).join('');
+    list.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => {
+      pending.splice(Number(b.dataset.rm), 1);
+      renderPending();
+    }));
+  };
+  const renderExisting = async () => {
+    let vids = [];
+    try { vids = await get(`/api/entries/${entryId}/videos`); } catch { vids = []; }
+    list.innerHTML = vids.length
+      ? vids.map((v) =>
+        `<div class="video-item"><span class="video-name">${esc(v.original_name)} <span class="sub">${fmtSize(v.size_bytes)}</span></span><button class="vid-remove" data-delvid="${v.id}" aria-label="Remove">×</button></div>`).join('')
+      : '<p class="sub">No videos attached yet.</p>';
+    list.querySelectorAll('[data-delvid]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Remove this video?')) return;
+      try { await del(`/api/videos/${b.dataset.delvid}`); toast('Video removed'); renderExisting(); }
+      catch (e) { toast(e.message); }
+    }));
+  };
+  input.addEventListener('change', async () => {
+    const files = Array.from(input.files || []);
+    input.value = '';
+    if (!files.length) return;
+    if (entryId) {
+      const fd = new FormData();
+      files.forEach((f) => fd.append('videos', f));
+      try {
+        toast('Uploading video…');
+        await apiUpload(`/api/entries/${entryId}/videos`, fd);
+        toast('Video attached');
+        renderExisting();
+      } catch (e) { toast(e.message); }
+    } else {
+      pending = pending.concat(files);
+      renderPending();
+    }
+  });
+  if (entryId) await renderExisting();
+  return {
+    uploadPending: async (newEntryId) => {
+      if (!pending.length) return;
+      const fd = new FormData();
+      pending.forEach((f) => fd.append('videos', f));
+      toast('Uploading video…');
+      await apiUpload(`/api/entries/${newEntryId}/videos`, fd);
+      pending = [];
+      toast('Video attached');
+    },
+  };
+}
+
 // ---------- layout ----------
 function tabbar(active) {
   const tabs = [
@@ -300,6 +382,7 @@ function renderAtBat(existing) {
       <span class="opt">Optional</span>
       <input type="text" id="f-cue" value="${esc(d.cue || '')}" placeholder="See it up">
     </div>
+    ${videoSectionHTML()}
     ${existing
       ? `<div class="btn-row"><button class="btn secondary" id="cancel-btn">Cancel</button><button class="btn" id="save">Save changes</button></div>
          <button class="btn danger" id="del">Delete this at-bat</button>`
@@ -310,6 +393,7 @@ function renderAtBat(existing) {
   wireScales(app);
   wireVoice('voice-f-plan', 'f-plan');
   if (!existing) wireTypeGrid(app);
+  const vidReady = wireVideoSection(existing ? existing.id : null);
   document.getElementById('back-to-menu').addEventListener('click', () => { abSession = null; location.hash = '#/home'; });
   document.getElementById('cancel-btn').addEventListener('click', () => {
     if (existing) { location.hash = '#/library'; } else { abSession = null; location.hash = '#/home'; }
@@ -361,11 +445,13 @@ function renderAtBat(existing) {
       if (!abSession) {
         abSession = { gameId: 'g-' + Date.now().toString(36), date: c.date, opponent: c.opponent, number: num };
       }
+      let saved;
       try {
-        await post('/api/entries', {
+        saved = await post('/api/entries', {
           type: 'atbat', game_id: abSession.gameId, at_bat_number: abSession.number, ...c,
         });
       } catch (e) { toast(e.message); return; }
+      try { await (await vidReady).uploadPending(saved.id); } catch (e) { toast(e.message); }
       if (next) {
         abSession.number += 1;
         abSession.date = c.date; abSession.opponent = c.opponent;
@@ -420,6 +506,7 @@ function renderReflection(kind, existing) {
     <textarea class="big" id="f-refl" placeholder="Talk or type through the ${isGame ? 'game' : 'practice'} as a whole. What stood out? Where were you locked in? When did your mindset shift? How did you handle the hard moments?">${esc(existing ? existing.reflection : '')}</textarea>
     <h2 class="sect">What happens next</h2>
     <p class="sub">Save your reflection and the app will respond with a few general takeaways from what you wrote.</p>
+    ${videoSectionHTML()}
     ${existing
       ? `<div class="btn-row"><button class="btn secondary" id="cancel-btn">Cancel</button><button class="btn" id="save">Save changes</button></div>
          <button class="btn danger" id="del">Delete</button>`
@@ -429,6 +516,7 @@ function renderReflection(kind, existing) {
   wireScales(app);
   wireVoice('voice-f-refl', 'f-refl');
   if (!existing) wireTypeGrid(app);
+  const vidReady = wireVideoSection(existing ? existing.id : null);
   document.getElementById('back-to-menu').addEventListener('click', () => { location.hash = '#/home'; });
   document.getElementById('cancel-btn').addEventListener('click', () => {
     location.hash = existing ? `#/entry/${existing.id}` : '#/home';
@@ -458,6 +546,7 @@ function renderReflection(kind, existing) {
         location.hash = `#/entry/${existing.id}`;
       } else {
         const saved = await post('/api/entries', { type: kind, ...collect() });
+        try { await (await vidReady).uploadPending(saved.id); } catch (e) { toast(e.message); }
         location.hash = `#/entry/${saved.id}`;
       }
     } catch (e) { toast(e.message); }
@@ -499,6 +588,7 @@ function renderIndividual(existing) {
     <label class="field">Self-talk</label>
     <span class="opt">Optional</span>
     <input type="text" id="f-selftalk" value="${esc(d.selfTalk || '')}" placeholder="What did you say to yourself? Was it believable and useful?">
+    ${videoSectionHTML()}
     ${existing
       ? `<div class="btn-row"><button class="btn secondary" id="cancel-btn">Cancel</button><button class="btn" id="save">Save changes</button></div>
          <button class="btn danger" id="del">Delete</button>`
@@ -508,6 +598,7 @@ function renderIndividual(existing) {
   wireScales(app);
   wireVoice('voice-f-focus', 'f-focus');
   if (!existing) wireTypeGrid(app);
+  const vidReady = wireVideoSection(existing ? existing.id : null);
   document.getElementById('back-to-menu').addEventListener('click', () => { location.hash = '#/home'; });
   document.getElementById('cancel-btn').addEventListener('click', () => {
     location.hash = existing ? '#/library' : '#/home';
@@ -530,7 +621,8 @@ function renderIndividual(existing) {
         await put(`/api/entries/${existing.id}`, collect());
         toast('Saved');
       } else {
-        await post('/api/entries', { type: 'individual', ...collect() });
+        const saved = await post('/api/entries', { type: 'individual', ...collect() });
+        try { await (await vidReady).uploadPending(saved.id); } catch (e) { toast(e.message); }
         toast('Session saved');
       }
       location.hash = '#/library';
@@ -640,6 +732,15 @@ async function renderEntry(id) {
     ['Cue', d.cue], ['Pitcher notes', d.pitcherNotes], ['Focus', d.focus],
     ['Approach', d.approach], ['Notes', d.notes],
   ];
+  let vidsHtml = '';
+  try {
+    const vids = await get(`/api/entries/${id}/videos`);
+    if (vids.length) {
+      vidsHtml = `<h2 class="sect">Video</h2>` + vids.map((v) =>
+        `<div class="card"><div class="kicker gray" style="margin-bottom:8px">${esc(v.original_name)}</div>
+         <video class="vid-player" controls playsinline preload="metadata" src="/api/videos/${v.id}/stream"></video></div>`).join('');
+    }
+  } catch { /* no videos or offline — skip */ }
   app.innerHTML = `${topbar()}
     <button class="backbtn" id="back">← Back to library</button>
     <h1 class="display" style="font-size:36px">${typeLabel(e.type)}.</h1>
@@ -648,6 +749,7 @@ async function renderEntry(id) {
     ${e.reflection ? `<div class="card"><strong>Reflection</strong><p>${esc(e.reflection)}</p></div>` : ''}
     ${e.takeaways && e.takeaways.length ? `<h2 class="sect">Takeaways</h2>${e.takeaways.map((t) =>
       `<div class="takeaway"><div class="kicker">Takeaway</div>${esc(t)}</div>`).join('')}` : ''}
+    ${vidsHtml}
     <button class="btn secondary" id="edit">Edit this entry</button>
     ${tabbar('library')}`;
   wireNav(app); wireLogout(app);
