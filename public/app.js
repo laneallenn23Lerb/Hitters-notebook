@@ -43,40 +43,140 @@ const STOP_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-l
 // ---------- voice ----------
 function setVoiceBtn(btn, listening) {
   btn.innerHTML = listening
-    ? STOP_SVG + '<span>Stop talking</span>'
+    ? STOP_SVG + '<span>Listening… tap to stop</span>'
     : MIC_SVG + '<span>Start talking</span>';
 }
-function wireVoice(btnId, areaId) {
+// Continuous listening: keeps the mic open until HE taps stop.
+// - recognition.continuous + interimResults; a wantListening flag restarts the
+//   session on onend (iOS Safari kills continuous sessions on pauses).
+// - Interim transcript shows live so he can see it's still hearing him.
+// - Final chunks accumulate; on stop, the transcript is parsed into ALL fields
+//   of the active form (window.VoiceParse), never just one.
+function wireVoice(btnId, formKind) {
   const btn = document.getElementById(btnId);
-  const area = document.getElementById(areaId);
-  if (!btn || !area) return;
+  if (!btn) return;
+  const live = document.getElementById('live-' + btnId);
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
     btn.style.display = 'none';
     return;
   }
   let rec = null;
-  btn.addEventListener('click', () => {
-    if (rec) { rec.stop(); return; }
+  let wantListening = false;
+  let finalText = '';
+  const setLive = (msg) => { if (live) live.textContent = msg || ''; };
+
+  function startRec() {
+    wantListening = true;
     rec = new SR();
     rec.lang = 'en-US';
-    rec.interimResults = false;
+    rec.continuous = true;
+    rec.interimResults = true;
     rec.maxAlternatives = 1;
     btn.classList.add('listening');
     setVoiceBtn(btn, true);
+    setLive('Listening…');
     rec.onresult = (e) => {
-      const text = Array.from(e.results).map((r) => r[0].transcript).join(' ');
-      area.value = area.value ? area.value.trimEnd() + ' ' + text : text;
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const txt = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += (finalText ? ' ' : '') + txt;
+        else interim += txt;
+      }
+      setLive(interim.trim() ? 'Hearing: “' + interim.trim() + '”' : 'Listening…');
     };
-    const done = () => {
+    rec.onend = () => {
       rec = null;
+      if (wantListening) {
+        // Restart after a beat — covers iOS Safari stopping on pauses.
+        setTimeout(() => { if (wantListening) startRec(); }, 250);
+      } else {
+        finish();
+      }
+    };
+    rec.onerror = (e) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        wantListening = false;
+        try { rec.stop(); } catch (_) { /* noop */ }
+        btn.classList.remove('listening');
+        setVoiceBtn(btn, false);
+        setLive('');
+        toast('Microphone is blocked — allow mic access for this site in your browser settings, then try again.');
+      }
+      // 'no-speech' and other transient errors: onend fires next and the
+      // restart loop keeps listening while he still wants the mic.
+    };
+    try { rec.start(); }
+    catch (_) {
+      wantListening = false;
       btn.classList.remove('listening');
       setVoiceBtn(btn, false);
-    };
-    rec.onend = done;
-    rec.onerror = (e) => { done(); if (e.error !== 'aborted') toast('Voice hiccup — try again.'); };
-    try { rec.start(); } catch { done(); }
+      setLive('');
+    }
+  }
+
+  function finish() {
+    btn.classList.remove('listening');
+    setVoiceBtn(btn, false);
+    setLive('');
+    const text = finalText.trim();
+    finalText = '';
+    if (!text) return;
+    try {
+      const parsed = window.VoiceParse.parseTranscript(text, formKind);
+      applyVoiceParsed(formKind, parsed);
+      toast('Heard you — I filled in what I caught. Review and edit anything.');
+    } catch (_) {
+      toast('Voice hiccup — try again.');
+    }
+  }
+
+  btn.addEventListener('click', () => {
+    if (wantListening) {
+      wantListening = false;
+      if (rec) { try { rec.stop(); } catch (_) { /* noop */ } }
+    } else {
+      startRec();
+    }
   });
+}
+// Writes parsed voice segments into the active form's fields. Fields with no
+// detected content stay untouched; everything remains editable.
+function applyVoiceParsed(formKind, parsed) {
+  const setText = (id, v) => {
+    const el = document.getElementById(id);
+    if (el && v) el.value = el.value ? el.value.trimEnd() + ' ' + v : v;
+  };
+  const setRating = (name, val) => {
+    if (!val) return;
+    const b = document.querySelector(`.scale-btn[data-scale="${name}"][data-val="${val}"]`);
+    if (b) b.click();
+  };
+  if (formKind === 'atbat') {
+    setText('f-pnotes', parsed.pitcherNotes);
+    setText('f-plan', parsed.plan);
+    setText('f-notes', parsed.notes);
+    setText('f-result', parsed.result);
+    setText('f-contact', parsed.contactQuality);
+    setText('f-mech', parsed.mechanics);
+    setText('f-mental', parsed.mentalState);
+    setText('f-selftalk', parsed.selfTalk);
+    setText('f-cue', parsed.cue);
+    setRating('exec', parsed.execution);
+  } else if (formKind === 'reflection') {
+    setText('f-refl', parsed.reflection);
+    if (parsed.ratings) {
+      setRating('competed', parsed.ratings.competed);
+      setRating('present', parsed.ratings.present);
+      setRating('adversity', parsed.ratings.adversity);
+    }
+  } else if (formKind === 'individual') {
+    setText('f-focus', parsed.focus);
+    setText('f-notes', parsed.notes);
+    setText('f-mech', parsed.mechanics);
+    setText('f-selftalk', parsed.selfTalk);
+    setRating('exec', parsed.execution);
+  }
 }
 function voiceCard(areaId, copy) {
   return `<div class="voice-card">
@@ -88,6 +188,7 @@ function voiceCard(areaId, copy) {
       </div>
     </div>
     <button type="button" class="voice-btn" id="voice-${areaId}">${MIC_SVG}<span>Start talking</span></button>
+    <div class="voice-live" id="live-voice-${areaId}" aria-live="polite"></div>
     <p class="voice-caption">Nothing saves until you tap save. Every filled field stays editable.</p>
   </div>`;
 }
@@ -391,7 +492,7 @@ function renderAtBat(existing) {
     ${tabbar('home')}`;
   wireNav(app);
   wireScales(app);
-  wireVoice('voice-f-plan', 'f-plan');
+  wireVoice('voice-f-plan', 'atbat');
   if (!existing) wireTypeGrid(app);
   const vidReady = wireVideoSection(existing ? existing.id : null);
   document.getElementById('back-to-menu').addEventListener('click', () => { abSession = null; location.hash = '#/home'; });
@@ -514,7 +615,7 @@ function renderReflection(kind, existing) {
     ${tabbar('home')}`;
   wireNav(app);
   wireScales(app);
-  wireVoice('voice-f-refl', 'f-refl');
+  wireVoice('voice-f-refl', 'reflection');
   if (!existing) wireTypeGrid(app);
   const vidReady = wireVideoSection(existing ? existing.id : null);
   document.getElementById('back-to-menu').addEventListener('click', () => { location.hash = '#/home'; });
@@ -596,7 +697,7 @@ function renderIndividual(existing) {
     ${tabbar('home')}`;
   wireNav(app);
   wireScales(app);
-  wireVoice('voice-f-focus', 'f-focus');
+  wireVoice('voice-f-focus', 'individual');
   if (!existing) wireTypeGrid(app);
   const vidReady = wireVideoSection(existing ? existing.id : null);
   document.getElementById('back-to-menu').addEventListener('click', () => { location.hash = '#/home'; });

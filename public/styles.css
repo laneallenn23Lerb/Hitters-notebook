@@ -130,6 +130,16 @@ a { color: var(--accent); }
 .voice-btn svg { width: 20px; height: 20px; stroke: var(--accent-ink); }
 .voice-btn.listening { background: var(--danger); color: #fff; }
 .voice-btn.listening svg { stroke: #fff; }
+.voice-live {
+  min-height: 22px;
+  margin: 10px 0 0;
+  text-align: center;
+  font-size: 13.5px;
+  font-style: italic;
+  color: var(--accent);
+}
+.voice-live:not(:empty) { animation: voice-pulse 1.6s ease-in-out infinite; }
+@keyframes voice-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 .voice-caption { color: var(--muted); font-size: 13px; margin: 12px 0 0; text-align: center; }
 
 /* ---------- entry-type grid ---------- */
